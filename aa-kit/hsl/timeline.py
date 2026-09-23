@@ -14,7 +14,7 @@ def timeline(accs, last_ym):
                            f"Rs{med:,.0f} · '{s.sig}' · last seen {s.months[-1]}"))
             if s.kind == "DEBIT" and s.fixed and s.gaps:
                 for g in s.gaps:
-                    ev.append((g, a.holder, a.masked, "MANDATE DID NOT APPEAR",
+                    ev.append((g, a.holder, a.masked, "REGULAR DEBIT DID NOT APPEAR",
                                f"Rs{med:,.0f} · '{s.sig}'"))
             if s.kind == "DEBIT" and s.fixed and s.status == "STOPPED":
                 ev.append((s.months[-1], a.holder, a.masked, "COMMITMENT STOPPED",
@@ -44,4 +44,4 @@ if __name__ == "__main__":
     cur = None
     for ym, holder, acc, kind, detail in timeline(sela, last):
         if ym != cur: print(f"\n  {ym}"); cur = ym
-        print(f"      {kind:<24} {holder:<18} {detail}")
+        print(f"      {kind:<28} {holder:<18} {detail}")
