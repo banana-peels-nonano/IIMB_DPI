@@ -1,0 +1,2 @@
+# hsl engine files are hash-baselined; keep LF on every checkout
+aa-kit/hsl/*.py text eol=lf
