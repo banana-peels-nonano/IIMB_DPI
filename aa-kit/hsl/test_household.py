@@ -2,7 +2,11 @@ import unittest
 from statistics import median
 from household import *
 
-ACCS = parse("decrypted.json")
+import os, pathlib
+_DATA = os.environ.get("HSL_DATA")
+if not _DATA:
+    raise RuntimeError("Set HSL_DATA to the path of decrypted.json; tests never read from the working directory")
+ACCS = parse(str(pathlib.Path(_DATA).resolve(strict=True)))
 LAST = max(t.ym for a in ACCS for t in a.txns)
 BY = {a.masked: a for a in ACCS}
 SR, JR = BY["XXXXXXXX9741"], BY["XXXXXXXX9648"]
