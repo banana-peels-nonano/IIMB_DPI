@@ -315,6 +315,11 @@ def advance(prev: State, snap: Snapshot, answers=(), records=()) -> tuple:
                 del closed[cid]
             n_r = len(kept)
             kept = []
+            # the access log keeps THAT a lookup happened (date, source, mode, outcome, whose account),
+            # but loses what it returned: the reference and the names of the fields kept are redacted
+            access_log = [({**e, "request_ref": "", "fields_kept": [], "redacted": "purpose switched off"}
+                           if e.get("what") == "lookup" and e.get("purpose") == PURPOSE_DPI_LPG else e)
+                          for e in access_log]
             forgotten.append((purpose, snap.as_of))
             access_log.append(_forget_entry(snap.as_of, purpose, n_f, n_r, len(gone)))
             events.append(_ev("PURPOSE_REVOKED", "CHANGED", snap, prev_as_of, subject=purpose, basis="consent",
@@ -324,7 +329,7 @@ def advance(prev: State, snap: Snapshot, answers=(), records=()) -> tuple:
         return any(when <= d and (p == purpose or p == PURPOSE_GOV_PROTECT) for p, d in forgotten)
 
     # DPI records: accepted only under both purposes and only for this household; always logged
-    kept_ids = {r.id for r in kept}
+    kept_ids = {r.id for r in kept} | {e["id"] for e in access_log}      # a replayed lookup is never logged twice
     for rec in sorted((r for r in records if r.requested_on <= snap.as_of), key=lambda r: (r.requested_on, r.id)):
         if rec.id in kept_ids or was_forgotten(PURPOSE_DPI_LPG, rec.requested_on):
             continue
@@ -339,11 +344,10 @@ def advance(prev: State, snap: Snapshot, answers=(), records=()) -> tuple:
             kept.append(rec)
         kept_ids.add(rec.id)
         access_log.append(_log_entry(rec))
-        if fresh(rec.requested_on):
-            kind = {"ok": "SOURCE_CHECKED", "failed": "SOURCE_CHECK_FAILED", "refused": "SOURCE_CHECK_REFUSED"}
-            events.append(_ev(kind[rec.status], "NEW", snap, prev_as_of, subject=rec.id, account=rec.account or "",
-                              basis="source_record", classes=("O",) if rec.ok else (),
-                              mode=rec.mode, reason=rec.reason, record_id=rec.id))
+        kind = {"ok": "SOURCE_CHECKED", "failed": "SOURCE_CHECK_FAILED", "refused": "SOURCE_CHECK_REFUSED"}
+        events.append(_ev(kind[rec.status], "NEW", snap, prev_as_of, subject=rec.id, account=rec.account or "",
+                          basis="source_record", classes=("O",) if rec.ok else (),
+                          mode=rec.mode, reason=rec.reason, record_id=rec.id))   # once: replays are skipped above
 
     # answers first: they may close cards (Protect) or become household facts (Unlock)
     pending = []                                            # (FactStatement, card, answer)
@@ -355,8 +359,8 @@ def advance(prev: State, snap: Snapshot, answers=(), records=()) -> tuple:
         if not usable:
             raise AnswerInvalid(f"{a.card_id}: '{a.option}' is not an option on an open card")
         if card.question.code in FACTS:
-            if not fresh(a.answered_on) or was_forgotten(FACTS[card.question.code]["purpose"], a.answered_on):
-                continue                                    # facts carry forward in state; never re-applied
+            if was_forgotten(FACTS[card.question.code]["purpose"], a.answered_on):
+                continue                                    # forgotten answers are never re-applied
             if FACTS[card.question.code]["purpose"] not in purposes:
                 raise PurposeNotGranted(f"{card.question.code}: its purpose is switched off")
             u = next(e for e in card.evidence if e.id in card.question.resolves)
@@ -368,22 +372,21 @@ def advance(prev: State, snap: Snapshot, answers=(), records=()) -> tuple:
             fid = "FACT-" + hashlib.sha256(f"{a.card_id}|{a.option}".encode()).hexdigest()[:10]
             if fid not in facts:
                 facts[fid] = Fact(fid, a.card_id, card.question.code, a.option, a.answered_on)
-                if fresh(a.answered_on):
-                    events.append(_ev("QUESTION_ANSWERED", "CHANGED", snap, prev_as_of, card,
-                                      basis="you_told_us", option=a.option))
+                events.append(_ev("QUESTION_ANSWERED", "CHANGED", snap, prev_as_of, card,
+                                  basis="you_told_us", option=a.option))
         elif a.card_id not in closed:
             closed[a.card_id] = Closure(card.id, card.code, card.subject, card.account, a.answered_on,
                                         reason, "you_told_us", a.fingerprint or fingerprint(card),
                                         _return_txns(card), (), _summary(card))
-            if fresh(a.answered_on):
-                events.append(_ev("CARD_RESOLVED", "RESOLVED", snap, prev_as_of, card,
-                                  basis="you_told_us", reason=reason, option=a.option))
+            events.append(_ev("CARD_RESOLVED", "RESOLVED", snap, prev_as_of, card,
+                              basis="you_told_us", reason=reason, option=a.option))
     for f in statements:
         spec = FACTS.get(f.code)
         if spec is None:
             raise AnswerInvalid(f"unknown fact {f.code!r}")
-        if not fresh(f.stated_on) or was_forgotten(spec["purpose"], f.stated_on):
-            continue                                        # already in state, or forgotten: never re-applied
+        if was_forgotten(spec["purpose"], f.stated_on):
+            continue                                        # forgotten: never re-applied (facts.apply drops
+                                                            # repeats and stale statements)
         if spec["purpose"] not in purposes:
             raise PurposeNotGranted(f"{f.code}: its purpose is not switched on")
         pending.append((f, None, None))
@@ -405,15 +408,12 @@ def advance(prev: State, snap: Snapshot, answers=(), records=()) -> tuple:
             summary = {**_summary(card), "fact": f.code, "value": f.value, "scheme": f.scheme}
             closed[card.id] = Closure(card.id, card.code, card.subject, card.account, a.answered_on, "ANSWERED",
                                       "you_told_us", a.fingerprint or fingerprint(card), (), (), summary)
-            if fresh(a.answered_on):
-                events.append(_ev("CARD_RESOLVED", "RESOLVED", snap, prev_as_of, card, basis="you_told_us",
-                                  reason="ANSWERED", fact=f.code, value=f.value, summary=summary))
+            events.append(_ev("CARD_RESOLVED", "RESOLVED", snap, prev_as_of, card, basis="you_told_us",
+                              reason="ANSWERED", fact=f.code, value=f.value, summary=summary))
 
-    # one event per fresh fact, carrying its combined effect across rules
+    # one event per fact that changed state now, carrying its combined effect across rules
     fact_events = {}
-    for f in applied:
-        if not fresh(f.stated_on):
-            continue
+    for f in applied:                                       # applied = changed state now, whatever its date
         corr = corrected_ids.get(f.id)
         e = _ev("FACT_CORRECTED" if corr else "FACT_CONFIRMED", "CHANGED", snap, prev_as_of,
                 subject=f.id, account=f.account, basis="you_told_us", classes=("U",),

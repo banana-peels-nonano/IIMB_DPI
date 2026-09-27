@@ -135,13 +135,15 @@ def check(s: FactStatement) -> FactStatement:
 def apply(current: tuple, statements: list) -> tuple:
     """(current facts, new statements in date order) -> (facts, corrections, fresh).
     A statement with the same key replaces the earlier one; if the value differs,
-    the change is kept as a Correction. Same key + same value is a no-op."""
+    the change is kept as a Correction. Same key + same value is a no-op, and a
+    statement OLDER than the one already held is stale and ignored - so re-sending
+    everything ever said (e.g. after a reload) can never manufacture a correction."""
     by_key = {f.key: f for f in current}
     corrections, fresh = [], []
     for s in statements:
         check(s)
         old = by_key.get(s.key)
-        if old is not None and old.value == s.value:
+        if old is not None and (old.value == s.value or s.stated_on < old.stated_on):
             continue
         if old is not None:
             corrections.append(Correction(s.id, s.code, s.account, s.scheme, old.value, s.value, s.stated_on))
