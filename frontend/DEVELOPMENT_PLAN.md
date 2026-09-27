@@ -77,8 +77,8 @@ The complete class compositions above were checked against the pinned `ux4g-web-
 
 - [x] Phase 0 — delivery plan.
 - [x] Phase 1 — frontend foundation (React, TypeScript, Vite, UX4G 2.1.0, local health proxy; production build and mobile browser check passed).
-- [ ] Phase 2 — application shell and navigation.
-- [ ] Phase 3 — local sample journey.
+- [x] Phase 2 — application shell and navigation (UX4G responsive navigation, route-based journey, demo disclosure).
+- [x] Phase 3 — local sample journey (reviewed synthetic scenarios, evidence labels, answer/fact controls, demo purpose choices, and in-memory clear action).
 - [ ] Phase 4 — current-backend health integration.
 - [ ] Phase 5 — contract API integration boundary.
 - [ ] Phase 6 — live AA consent and secure sessions (future; backend/API approval required).
