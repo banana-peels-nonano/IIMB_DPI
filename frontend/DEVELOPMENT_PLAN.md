@@ -57,13 +57,13 @@ Existing Flask routes are `GET /health`, `GET /captures`, and `POST /aa/data-rea
 
 ## UX4G implementation inventory
 
-- `Button`: Primary / medium for the main continue or answer action; Outline Primary / medium for secondary navigation; Danger / medium only for the final forget confirmation.
-- `Card`: default content surface for each information/action card; responsive width is provided by UX4G layout utilities rather than a component size.
-- `Alert`: Information variant for replay/simulation and connection disclosures; no size modifier.
-- `Chip`: Primary variant for compact evidence labels. Each label includes its O/R/I/U text and accessible description; colour is never the sole signal. No size modifier.
+- `Button`: Primary / medium for the main continue or answer action (`ux4g-btn ux4g-btn-primary ux4g-btn-md`); Outline Primary / medium for secondary navigation; Danger / medium for the final forget confirmation.
+- `Card`: Solid / Vertical for information and action cards (`ux4g-card ux4g-card-solid ux4g-card-vertical`); responsive width is provided by UX4G layout utilities rather than a component size.
+- `Alert`: Information (`ux4g-alert ux4g-alert-info`) for replay/simulation and connection disclosures; no size modifier.
+- `Tag`: Tonal / Neutral / small (`ux4g-tag-tonal-neutral ux4g-tag-s`) for provenance labels. Each tag includes its O/R/I/U letter, full evidence label, and accessible description; colour is never the sole signal.
 - Layout/navigation: UX4G grid and spacing utilities with semantic links; use application layout CSS only where the system has no matching page-shell pattern.
 
-Before implementation, confirm the complete class composition for Alert and Chip against the pinned package. For Button, preserve the base + variant + size order. Avoid UX4G form controls with the known low-contrast default border until a documented accessible token/class is confirmed; current sample answers use Buttons.
+The complete class compositions above were checked against the pinned `ux4g-web-components@2.1.0` package README and stylesheet. For Button, preserve the base + variant + size order. Avoid UX4G form controls with the known low-contrast default border until a documented accessible token/class is confirmed; current sample answers use Buttons.
 
 ## Verification gates
 
@@ -76,7 +76,7 @@ Before implementation, confirm the complete class composition for Alert and Chip
 ## Status
 
 - [x] Phase 0 — delivery plan.
-- [ ] Phase 1 — frontend foundation.
+- [x] Phase 1 — frontend foundation (React, TypeScript, Vite, UX4G 2.1.0, local health proxy; production build and mobile browser check passed).
 - [ ] Phase 2 — application shell and navigation.
 - [ ] Phase 3 — local sample journey.
 - [ ] Phase 4 — current-backend health integration.
