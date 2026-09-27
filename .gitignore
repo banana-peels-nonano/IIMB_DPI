@@ -9,3 +9,9 @@ captures/
 tools/
 aa-kit.tar.gz
 hsl-engine.tar.gz
+
+# Local UX4G skill references and source material
+/SKILL.md
+/Design.md
+/Mirror_Warbook_Finals2026.pdf
+/.agents/skills/ux4g-design/
