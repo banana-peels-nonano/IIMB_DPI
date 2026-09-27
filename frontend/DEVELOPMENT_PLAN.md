@@ -41,7 +41,7 @@ Use Vite's dev-server proxy to read the existing `GET /health` response without 
 
 ### Phase 5 — contract API integration boundary
 
-Implement and document a typed frontend data-source interface. Keep the local sample adapter as the active source. The repository has no endpoint that returns the Mirror contract or accepts customer actions, so a live adapter remains disabled until an approved backend/API exists. Expected future operations include reading the validated contract and submitting card answers, fact corrections, purpose choices, and forget requests.
+Implement and document a typed frontend data-source interface. Keep the local sample fixture as the active source. The repository has no endpoint that returns the Mirror contract or accepts customer actions, so a live adapter remains disabled until an approved backend/API exists. Expected future operations include reading the validated contract and submitting card answers, fact corrections, purpose choices, and forget requests.
 
 ### Phase 6 — live AA consent and secure sessions (future)
 
@@ -49,7 +49,7 @@ Requires an approved server-side API around the existing Anumati client and call
 
 ### Phase 7 — hosting readiness (future)
 
-Keep the frontend build static and environment-configured for a same-origin API. Confirm the deployment platform, data residency, session/cookie settings, logging, and security review with the hosting owner before production use.
+Keep the frontend build static and environment-configured for a same-origin API. Confirm the deployment platform, data residency, session/cookie settings, logging, and security review with the hosting owner before production use. Track UX4G's current production CSS output (about 8.3 MB uncompressed) and Vite's >500 kB chunk warning for deployment performance work.
 
 ## Current backend boundary
 
@@ -79,7 +79,7 @@ The complete class compositions above were checked against the pinned `ux4g-web-
 - [x] Phase 1 — frontend foundation (React, TypeScript, Vite, UX4G 2.1.0, local health proxy; production build and mobile browser check passed).
 - [x] Phase 2 — application shell and navigation (UX4G responsive navigation, route-based journey, demo disclosure).
 - [x] Phase 3 — local sample journey (reviewed synthetic scenarios, evidence labels, answer/fact controls, demo purpose choices, and in-memory clear action).
-- [ ] Phase 4 — current-backend health integration.
-- [ ] Phase 5 — contract API integration boundary.
+- [x] Phase 4 — current-backend health integration (reads only `ok` from `/health`; offline journey remains available).
+- [x] Phase 5 — contract API integration boundary (typed `mirror.app/1.0` DTO and disabled live source; sample fixture remains active).
 - [ ] Phase 6 — live AA consent and secure sessions (future; backend/API approval required).
 - [ ] Phase 7 — hosting readiness (future).

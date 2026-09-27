@@ -86,6 +86,16 @@
   margin: 0;
 }
 
+.backend-status {
+  align-items: center;
+  border: var(--ux4g-border-width-sm) solid var(--ux4g-border-color-neutral-strong);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ux4g-padding-s);
+  justify-content: space-between;
+  padding: var(--ux4g-padding-s) var(--ux4g-padding-m);
+}
+
 .page-stack {
   display: grid;
 }

@@ -1,6 +1,7 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { BrowserRouter, Link, NavLink, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { sampleAhead, sampleCards, sampleFacts, sampleHousehold } from "./demo/sample-contract";
+import { checkBackendHealth, type BackendHealth } from "./api/health";
 
 type DemoState = {
   answers: Record<string, string>;
@@ -36,8 +37,23 @@ function MobileNavigation() {
 function Disclosure() {
   return <div className="ux4g-alert ux4g-alert-info demo-disclosure" role="note"><span><strong>Local demo.</strong> Every household record is synthetic and illustrative. No bank is connected. Never enter personal, bank, Aadhaar, or OTP information.</span></div>;
 }
+function BackendStatus() {
+  const [status, setStatus] = useState<BackendHealth>("checking");
+  const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 3500);
+    checkBackendHealth(controller.signal)
+      .then((available) => setStatus(available ? "available" : "unavailable"))
+      .catch(() => setStatus("unavailable"))
+      .finally(() => window.clearTimeout(timeout));
+    return () => { controller.abort(); window.clearTimeout(timeout); };
+  }, [refresh]);
+  const label = status === "checking" ? "Checking local service…" : status === "available" ? "Local service available" : "Local service unavailable";
+  return <div className="backend-status" aria-live="polite"><span className="ux4g-body-s-default">{label}. This status does not mean a bank is connected.</span><button type="button" className="ux4g-btn ux4g-btn-outline-primary ux4g-btn-sm" onClick={() => { setStatus("checking"); setRefresh((n) => n + 1); }}>Check again</button></div>;
+}
 function AppLayout() {
-  return <div className="app-shell"><a className="skip-link" href="#main-content">Skip to main content</a><Header /><main id="main-content" className="ux4g-container app-main ux4g-grid ux4g-gap-xl"><Disclosure /><Outlet /></main><footer className="site-footer ux4g-container"><p className="ux4g-body-xs-default">Mirror helps you inspect patterns. Only you or the institution can confirm what happened. Mirror never moves money.</p></footer><MobileNavigation /></div>;
+  return <div className="app-shell"><a className="skip-link" href="#main-content">Skip to main content</a><Header /><main id="main-content" className="ux4g-container app-main ux4g-grid ux4g-gap-xl"><Disclosure /><BackendStatus /><Outlet /></main><footer className="site-footer ux4g-container"><p className="ux4g-body-xs-default">Mirror helps you inspect patterns. Only you or the institution can confirm what happened. Mirror never moves money.</p></footer><MobileNavigation /></div>;
 }
 function PageHeading({ eyebrow, title, intro }: { eyebrow: string; title: string; intro: string }) {
   return <div className="page-heading ux4g-grid ux4g-gap-m"><p className="ux4g-label-m-strong ux4g-text-brand-primary-default">{eyebrow}</p><h1 className="ux4g-heading-xl-strong">{title}</h1><p className="ux4g-body-l-default">{intro}</p></div>;
