@@ -18,7 +18,9 @@ import re
 from datetime import date
 
 from .cards import Card, PAN_RX, MOBILE_RX
-from .rules import RULES
+from .facts import FACTS
+from .rules import rule, STATE_RULES
+from .snapshot import display_name
 
 
 class UnsafeLanguage(Exception):
@@ -40,6 +42,13 @@ BANNED = [
     (r"\bL&T\b|\bLarsen\b", "lender name inferred from a code"),
     (r"\b(fraud|theft|stole|illegal)\b", "accusation"),
     (r"\b(you must pay by|your deadline is)\b", "unconditional deadline"),
+    # Gate 4: what we don't see is never "not enrolled"; and no product advice
+    (r"\b(not|never|isn't|aren't|wasn't|weren't)\s+(enrolled|covered|insured|a member)\b",
+     "enrolment status we cannot observe"),
+    (r"\b(you|he|she|they)\s+(don't|do not|doesn't|does not)\s+have\s+(any\s+)?(cover|insurance|a pension)\b",
+     "enrolment status we cannot observe"),
+    (r"\byou should (buy|enrol|join|invest|switch)\b", "product advice"),
+    (r"\b(replace|cancel|surrender) (your|his|her|their) (LIC|policy|insurance|cover)\b", "product advice"),
 ]
 IDENTIFIERS = [
     (PAN_RX, "PAN"),
@@ -104,6 +113,9 @@ OPTION_LABELS = {
     "paid_another_way": "It was paid another way or from another account",
     "it_has_ended": "It has ended",
 }
+for _code, _spec in FACTS.items():                  # Gate 4: every household-fact answer
+    for _v, _label in _spec["values"].items():
+        OPTION_LABELS.setdefault(_v, _label)
 
 
 def _liq_line(card: Card) -> str:
@@ -180,21 +192,205 @@ def _gap_q(c: Card) -> list:
     ]
 
 
+# ---------- Gate 4 + 5 templates: Unlock and the LPG record ----------
+def _who(c: Card) -> str:
+    return display_name(c.member).split()[0]
+
+
+def _window(e) -> str:
+    a = e.data["absence"]
+    return f"{dt(a['from'])} – {dt(a['to'])}"
+
+
+def scheme_copy(scheme: str) -> dict:
+    p = STATE_RULES[scheme]["params"]
+    if scheme == "PMSBY":
+        return {"kind": "Accident cover", "ages": f"{p['age_min']}–{p['age_max']}",
+                "what": (f"pays {inr(p['cover_inr']['death_or_permanent_total_disability'])} on accidental death "
+                         f"or permanent total disability ({inr(p['cover_inr']['partial_disability'])} for partial "
+                         f"disability), for {inr(p['premium_inr'])} a year taken by auto-debit")}
+    if scheme == "PMJJBY":
+        return {"kind": "Life cover", "ages": f"{p['age_min']}–{p['age_max']} at joining",
+                "what": (f"pays {inr(p['cover_inr'])} on death from any cause, for {inr(p['premium_inr'])} a year "
+                         f"taken by auto-debit; the cover can continue to age {p['cover_until_age']}")}
+    return {"kind": "Pension", "ages": f"{p['age_min']}–{p['age_max']} at joining",
+            "what": (f"pays a pension of {inr(p['pension_options_inr'][0])}–{inr(p['pension_options_inr'][-1])} "
+                     f"a month from age {p['pension_from_age']}, for regular contributions taken by auto-debit")}
+
+
+def _or(xs: list) -> str:
+    return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " or " + xs[-1]
+
+
+def _age_q(c: Card) -> list:
+    who = _who(c)
+    asked = [e.data["scheme"] for e in c.evidence if e.code == "SCHEME_RULE"]
+    seen = [e.data["scheme"] for e in c.evidence if e.code == "SCHEME_DEBIT_SEEN"]
+    ns = next(e for e in c.evidence if e.code == "SCHEME_DEBIT_NOT_SEEN")
+    limits = ", ".join(f"{s} ({scheme_copy(s)['ages']})" for s in asked)
+    lines = [f"{len(asked)} government protection{'s' if len(asked) != 1 else ''} with age limits could matter "
+             f"for {who}: {limits}.",
+             f"We don't see {_or(asked)} in {who}'s connected account ({_window(ns)}). "
+             f"That doesn't tell us about other accounts."]
+    if seen:
+        lines.append(f"We do see {' and '.join(seen)} in {who}'s account.")
+    lines.append("We only ask for an age band — never a date of birth.")
+    return lines
+
+
+def _tax_q(c: Card) -> list:
+    who, a = _who(c), scheme_copy("APY")
+    return [f"APY {a['what']}. It is for people who join at 18–40 and are not income-tax payers.",
+            f"You told us {who} is {OPTION_LABELS[c.ev('e_age').data['answered']]}. "
+            f"We don't see APY contributions in {who}'s connected account ({_window(c.ev('e_ns'))})."]
+
+
+def _door_t(c: Card) -> list:
+    who = _who(c)
+    scheme = c.ev("e_rule").data["scheme"]
+    a = scheme_copy(scheme)
+    told = [f"{who} is {OPTION_LABELS[c.ev('e_age').data['answered']]}"]
+    if scheme == "APY":
+        told.append({"no": f"{who} has not paid income tax",
+                     "not_sure": f"you're not sure whether {who} has ever paid income tax — if so, APY is closed"}
+                    [c.ev("e_tax").data["answered"]])
+    lines = [f"{a['kind']} worth checking: {scheme} {a['what']}. It is for ages {a['ages']}.",
+             f"You told us {' and '.join(told)}.",
+             f"We don't see {scheme} in {who}'s connected account ({_window(c.ev('e_ns'))}) — "
+             f"but it could be through another bank or the post office."]
+    cov = c.ev("e_cov")
+    if cov.answered:
+        lines.append({"no": f"You told us {who} doesn't have it through another account.",
+                      "not_sure": f"You weren't sure whether {who} has it through another account — "
+                                  f"the bank can check."}[cov.data["answered"]])
+    if scheme == "PMJJBY":
+        lines.append("New cover doesn't pay for death other than by accident in the first 30 days.")
+    lines.append(f"Only a bank or post office can enrol {who} and confirm the terms.")
+    return lines
+
+
+def _not_shown_t(c: Card) -> list:
+    who = _who(c)
+    scheme = c.ev("e_rule").data["scheme"]
+    if c.ev("e_age").data.get("reason") == "TAXPAYER":
+        return [f"{scheme} isn't shown for {who}: it is for people who are not income-tax payers, and you told us "
+                f"{who} is or has been one."]
+    return [f"{scheme} isn't shown for {who}: the published rule is for ages {scheme_copy(scheme)['ages']}, "
+            f"and you told us {who} is {OPTION_LABELS[c.ev('e_age').data['answered']]}."]
+
+
+def _pmuy_t(c: Card) -> list:
+    d = c.ev("e_credits").data
+    return [f"Ujjwala (PMUY) isn't shown: it gives new LPG connections to households that don't have one, and "
+            f"{d['count']} LPG subsidy credits from {d['payer_label']} in {_who(c)}'s account "
+            f"({dt(d['first'])} – {dt(d['last'])}) show the household has had a connection."]
+
+
+def _lpg_base(c: Card) -> str:
+    d, n = c.ev("e_credits").data, c.ev("e_none").data
+    return (f"{_who(c)}'s account received {d['count']} LPG subsidy credits from {d['payer_label']} between "
+            f"{dt(d['first'])} and {dt(d['last'])} ({inr(d['amount_low'])}–{inr(d['amount_high'])} each) — "
+            f"none since (data runs to {dt(n['absence']['account_data_until'])}).")
+
+
+LOOKUP_REASON = {"ID_NOT_RECOGNISED": "the LPG ID wasn't recognised", "TIMEOUT": "the record didn't answer in time",
+                 "UNREACHABLE_OR_TIMEOUT": "the record didn't answer",
+                 "NO_USABLE_FIELDS": "the record didn't include a usable last booking date",
+                 "AMBIGUOUS_RECORD": "the record mixed more than one connection",
+                 "NOT_JSON": "the record's reply was unreadable", "NOT_JSON_OBJECT": "the record's reply was unreadable",
+                 "PURPOSE_NOT_GRANTED": "the LPG check isn't switched on"}
+
+
+def _lookup_note(c: Card) -> list:
+    lk = c.provenance.get("dpi_lookup")
+    if not lk:
+        return []
+    why = LOOKUP_REASON.get(lk["reason"], "the record returned an error")
+    sim = " (simulated failure)" if lk["mode"] == "simulated" else ""
+    return [f"We tried to check the oil company's record on {dt(lk['on'])} but couldn't: {why}{sim}. "
+            f"Nothing has changed."]
+
+
+def _lpg_q(c: Card) -> list:
+    lines = [_lpg_base(c),
+             "Subsidy is paid into a bank account for each refill, so there are two ordinary explanations: no "
+             "refills since then, or the subsidy is going to another account (government transfers go to the "
+             "bank where the Aadhaar number was given last)."]
+    r = c.ev("e_refills")
+    if r.answered:
+        lines.append({"still_booking": "You told us refills are still being booked.",
+                      "not_sure": "You weren't sure whether refills were booked."}[r.data["answered"]])
+    return lines + _lookup_note(c)
+
+
+def _routing_t(c: Card) -> list:
+    rec, fnd, cr = c.ev("e_rec").data, c.ev("e_find").data["finding"], c.ev("e_credits").data
+    sim = rec["record"]["mode"] == "simulated"
+    head = ("SIMULATED record — " if sim else "") + "the oil company's record (via Perfios Hub) says"
+    refills = rec.get("subsidised_refills")
+    facts = [f"the last refill was booked on {dt(rec['last_booking_date'])}"]
+    if refills is not None:
+        facts.append(f"{refills} subsidised refill{'s' if refills != 1 else ''} this year")
+    lines = [f"{head}: {', '.join(facts)} — after the last subsidy credit on {dt(cr['last'])}."]
+    tail, bank = rec.get("account_tail"), rec.get("bank_name")
+    if fnd == "ELSEWHERE":
+        lines.append(f"It says the subsidy is paid into an account ending {tail}{f' at {bank}' if bank else ''}. "
+                     f"None of your connected accounts ends in {tail}, and no subsidy has arrived in them since "
+                     f"{dt(cr['last'])}.")
+        lines.append("Government transfers go to the bank where the Aadhaar number was given last. To move the "
+                     "subsidy to an account you use, give your Aadhaar number to that bank for DBT seeding "
+                     "(or use NPCI's BASE service).")
+    elif fnd == "NOT_SHOWN":
+        lines.append("It doesn't show which bank account the subsidy goes to, so we can't tell where it went.")
+        lines.append("Your bank can tell you which account your Aadhaar number is linked to for government transfers.")
+    elif fnd == "SAME":
+        lines.append(f"It says the subsidy goes to an account ending {tail} — the same last 4 digits as "
+                     f"{_who(c)}'s connected account — but no subsidy has arrived there since {dt(cr['last'])}. "
+                     f"Your distributor can say whether subsidy was paid.")
+    elif fnd == "OTHER_MEMBER":
+        other = c.ev("e_find").data["other_member"]
+        lines.append(f"It says the subsidy goes to an account ending {tail} — the same last 4 digits as "
+                     f"{other}'s connected account. Four digits can't prove it is the same account, and this "
+                     f"check only looked for subsidy credits in {_who(c)}'s account.")
+    else:
+        lines.append("It says the subsidy on this connection was given up. If that wasn't your choice, your "
+                     "distributor can explain how to restart it.")
+    if sim:
+        lines.append("We couldn't do a live lookup: there's no valid LPG ID from a consenting member of this "
+                     "household. This SIMULATED record shows exactly what the product does with a real one.")
+    return lines
+
+
 QUESTION_TEXT = {
     "LIC_RETURN_CONFIRM": "Was this your LIC premium?",
     "LOAN_STATUS_CHECK": "What did you find out?",
     "RETURN_LINK_CONFIRM": "Was the returned payment the one we think?",
     "GAP_REASON": "Do you know why?",
+    "AGE_BAND": "Which age band is {who} in?",
+    "TAXPAYER": "Is {who} an income-tax payer now, or has {who} ever been one?",
+    "COVERED_ELSEWHERE": "Does {who} already have this through another account?",
+    "LPG_REFILLS": "Have refills been booked since the last credit?",
+    "SUBSIDY_ACCOUNT": "Do you know which account gets the subsidy?",
+    "ROUTED_ACCOUNT_STATUS": "Is that account yours, and do you still use it?",
+    "SUBSIDY_GIVEN_UP": "Did you choose to give up the subsidy?",
+    "DISTRIBUTOR_ANSWER": "What does your distributor say?",
 }
 TEMPLATES = {"LIC_GRACE_CLOCK": _lic, "LOAN_OVERDUE_CLOCK": _loan,
-             "RETURN_LINK_QUESTION": _link_q, "COLLECTION_GAP_QUESTION": _gap_q}
+             "RETURN_LINK_QUESTION": _link_q, "COLLECTION_GAP_QUESTION": _gap_q,
+             "AGE_BAND_QUESTION": _age_q, "TAXPAYER_QUESTION": _tax_q, "PROTECTION_DOOR": _door_t,
+             "PROTECTION_NOT_SHOWN": _not_shown_t, "PMUY_NOT_SHOWN": _pmuy_t,
+             "LPG_SUBSIDY_QUESTION": _lpg_q, "LPG_SUBSIDY_ROUTING": _routing_t}
+
+
+def question_text(card: Card) -> str:
+    return gate(QUESTION_TEXT[card.question.code].format(who=_who(card)))
 
 
 def customer_text(card: Card) -> str:
     lines = TEMPLATES[card.code](card)
     if card.question:
         opts = " / ".join(f"[{OPTION_LABELS[o]}]" for o in card.question.options)
-        lines.append(f"{QUESTION_TEXT[card.question.code]}  {opts}")
+        lines.append(f"{question_text(card)}  {opts}")
     return gate("\n".join(lines))
 
 
@@ -203,15 +399,24 @@ def evidence_trail(card: Card) -> str:
     out = []
     for e in card.evidence:
         if e.cls == "O":
-            src = (f"{len(e.txn_ids)} transaction(s): {', '.join(e.txn_ids[:4])}{' …' if len(e.txn_ids) > 4 else ''}"
-                   if e.txn_ids else f"no matching transaction {e.data['absence']['from']} to {e.data['absence']['to']} "
-                                     f"(data runs to {e.data['absence']['account_data_until']})")
+            rec = e.data.get("record")
+            if rec:
+                src = (f"{'SIMULATED ' if rec['mode'] == 'simulated' else ''}record from the oil company via "
+                       f"Perfios Hub, ref {rec['request_ref']}, requested {rec['requested_on']}")
+            elif e.txn_ids:
+                src = f"{len(e.txn_ids)} transaction(s): {', '.join(e.txn_ids[:4])}{' …' if len(e.txn_ids) > 4 else ''}"
+            else:
+                src = (f"no matching transaction {e.data['absence']['from']} to {e.data['absence']['to']} "
+                       f"(data runs to {e.data['absence']['account_data_until']})")
             out.append(f"[O] {e.code} — {src}")
         elif e.cls == "R":
             rid = e.rule.split("@")[0]
-            out.append(f"[R] {e.code} — {RULES[rid]['name']} ({e.rule}); source: {RULES[rid]['citation']}")
+            out.append(f"[R] {e.code} — {rule(rid)['name']} ({e.rule}); source: {rule(rid)['citation']}")
         elif e.cls == "I":
             out.append(f"[I] {e.code} — inferred from {', '.join(e.based_on)}")
+        elif e.answered:
+            out.append(f"[U] {e.code} — you told us: {OPTION_LABELS[e.data['answered']]} "
+                       f"(on {e.data['stated_on']}); a statement, not something we observed")
         else:
             out.append(f"[U] {e.code} — not knowable from bank data; asked in the question")
     if card.deadline:
@@ -219,7 +424,8 @@ def evidence_trail(card: Card) -> str:
                    f"conditional on {', '.join(card.deadline.conditional_on) or 'nothing unknown'}")
     p = card.provenance
     out.append(f"Provenance: {p['source']} · account {p['account']} · corpus {p['corpus_sha256'][:8]}… · "
-               f"rulebook {p['rulebook_version']} · {p['engine']} · as of {p['as_of']}")
+               f"rulebook {p['rulebook_version']} · {p['engine']} · as of {p['as_of']}"
+               + (" · SIMULATED record" if p.get("simulated") else ""))
     return gate("\n".join(out))
 
 

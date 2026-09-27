@@ -17,11 +17,19 @@ Three kinds of entries, deliberately kept apart:
 
 Purpose tags: a rule runs only if its purpose is covered by the consent the
 customer gave. All three Protect rules sit under the AA consent's purpose.
+
+Gate 4 adds STATE_RULES: rules the STATE has published for its own protection
+schemes (PMSBY, PMJJBY, APY, PMUY) and for how its subsidies travel (PAHAL,
+the Aadhaar Payment Bridge mapper). Same schema, same evidence class (R), same
+citation discipline - one rulebook, two books. They run only under their own
+purpose, which the customer switches on separately from the AA consent.
 """
 
-RULEBOOK_VERSION = "2026-09-26"
+RULEBOOK_VERSION = "2026-09-27"
 
 PURPOSE_AA_PROTECT = "AA_PROTECT"   # AA consent, purpose code 102, FI type DEPOSIT
+PURPOSE_GOV_PROTECT = "GOV_PROTECT"  # separate toggle: "Check government protections for my household"
+PURPOSE_DPI_LPG = "DPI_LPG_CHECK"    # separate, per-lookup: "Check my LPG record with the oil company"
 
 RULES = {
     "LIC_GRACE": {
@@ -136,10 +144,184 @@ PRODUCT_POLICIES = {
 }
 
 
+# ---------------------------------------------------------------------------
+# STATE_RULES (Gate 4). Published by the Government of India for its own schemes.
+# Primary sources are the Department of Financial Services (DFS) scheme pages and
+# PIB; where only a secondary copy of a notification was reachable, the entry says so.
+# ---------------------------------------------------------------------------
+STATE_RULES = {
+    "PMSBY": {
+        "version": "1",
+        "name": "Pradhan Mantri Suraksha Bima Yojana (accident cover)",
+        "purpose": PURPOSE_GOV_PROTECT,
+        "output": "DOOR",
+        "applies_to": "people with a bank account",
+        "trigger_facts": ["no PMSBY premium debit seen in a connected account across a full cover year"],
+        "required_facts": ["age band (customer)", "already covered through another account (customer)"],
+        "params": {"age_min": 18, "age_max": 70, "premium_inr": 20,
+                   "cover_inr": {"death_or_permanent_total_disability": 200000, "partial_disability": 100000},
+                   "cover_year_starts": "06-01", "cover_year_ends": "05-31",
+                   "payment": "auto-debit from the subscriber's bank account"},
+        "citation": ("DFS, PMSBY (updated 05.02.2026): 'people in the age group of 18 to 70 years having a "
+                     "bank account'; 'Annual premium is Rs 20 per year'; cover period '1st June to 31st May'; "
+                     "'Rs. 2 Lakh payable on death or permanent total disability and Rs. 1 Lakh on partial "
+                     "disability'; premium paid 'through auto-debit'. PIB, 9 May 2026 (same age range and premium)."),
+        "source": "https://financialservices.gov.in/pradhan-mantri-suraksha-bima-yojana-pmsby",
+        "last_verified": "2026-09-27",
+        "uncertainty": [
+            "Only the bank or insurer decides an enrolment; we never state that someone can or cannot join.",
+            "Premiums are revised from time to time; an older debit can show an older premium.",
+            "A debit we cannot see (another bank, the post office) is invisible to us.",
+        ],
+    },
+    "PMJJBY": {
+        "version": "1",
+        "name": "Pradhan Mantri Jeevan Jyoti Bima Yojana (life cover)",
+        "purpose": PURPOSE_GOV_PROTECT,
+        "output": "DOOR",
+        "applies_to": "individual account holders of participating banks / post office",
+        "trigger_facts": ["no PMJJBY premium debit seen in a connected account across a full cover year"],
+        "required_facts": ["age band (customer)", "already covered through another account (customer)"],
+        "params": {"age_min": 18, "age_max": 50, "cover_until_age": 55, "premium_inr": 436,
+                   "cover_inr": 200000, "cover_year_starts": "06-01", "cover_year_ends": "05-31",
+                   "first_days_without_non_accident_cover": 30, "accounts_allowed": 1},
+        "citation": ("DFS, PMJJBY (updated 05.01.2026): account holders 'in the age group of 18 to 50 years'; "
+                     "'Rs.436/- per annum'; 'Rs.2 lakh is payable on a subscriber's death due to any cause'; "
+                     "cover '1st June to 31st May'; ends 'On attaining age 55 years'; no cover for death "
+                     "(other than accident) 'during the first 30 days from the date of enrolment'; "
+                     "'through one bank / Post office account only'."),
+        "source": "https://financialservices.gov.in/pmjjby",
+        "last_verified": "2026-09-27",
+        "uncertainty": [
+            "Only the bank or insurer decides an enrolment; we never state that someone can or cannot join.",
+            "Cover also ends if the account is closed or has too little money at renewal (DFS).",
+        ],
+    },
+    "APY": {
+        "version": "1",
+        "name": "Atal Pension Yojana (pension)",
+        "purpose": PURPOSE_GOV_PROTECT,
+        "output": "DOOR",
+        "applies_to": "savings account holders",
+        "trigger_facts": ["no APY contribution debit seen in a connected account"],
+        "required_facts": ["age band (customer)", "income-tax payer, now or ever (customer)",
+                           "already enrolled through another account (customer)"],
+        "params": {"age_min": 18, "age_max": 40, "excludes_income_tax_payers_from": "2022-10-01",
+                   "contribution_modes": ["monthly", "quarterly", "half-yearly"],
+                   "late_charge": "Rs 1 per month for every Rs 100 of a delayed monthly contribution",
+                   "pension_options_inr": [1000, 2000, 3000, 4000, 5000], "pension_from_age": 60},
+        "citation": ("DFS, APY (updated 05.01.2026): 'The age of the subscriber should be between 18 and 40 "
+                     "years'; contributions 'monthly / quarterly / half yearly ... through auto debit'; "
+                     "Rs. 1 per month per Rs. 100 for delayed monthly contributions; pension Rs 1,000-5,000 a "
+                     "month at 60. PIB, 9 May 2026 (PRID 2259251): APY is for bank account holders who are non-income-tax "
+                     "payers. MoF notification of 10 Aug 2022 (reported copies; the gazette text itself was "
+                     "not reachable): from 1 Oct 2022 'any citizen who is or has been an income-tax payer' "
+                     "may not join."),
+        "source": "https://financialservices.gov.in/atal-pension-yojana",
+        "last_verified": "2026-09-27",
+        "uncertainty": [
+            "The 2022 taxpayer notification was read through secondary copies; reports differ on what "
+            "happens to people who joined earlier (not relevant to a new joining check).",
+            "Only the bank decides an enrolment; we never state that someone can or cannot join.",
+        ],
+    },
+    "PMUY": {
+        "version": "1",
+        "name": "Pradhan Mantri Ujjwala Yojana (new LPG connection)",
+        "purpose": PURPOSE_GOV_PROTECT,
+        "output": "SUPPRESSION",
+        "applies_to": "households without an LPG connection",
+        "trigger_facts": ["LPG subsidy credits seen in a connected account"],
+        "required_facts": [],
+        "params": {"requires_no_lpg_connection_in_household": True},
+        "citation": ("PMUY, Ujjwala 2.0 conditions: 'There should be no other LPG connection from any Oil "
+                     "Marketing Company (OMC) within the same household' (other conditions: an adult woman "
+                     "applicant; a deprivation declaration)."),
+        "source": "https://www.pmuy.gov.in/ujjwala2.html",
+        "last_verified": "2026-09-27",
+        "uncertainty": ["We use only the 'no existing connection' condition, and only to explain why we "
+                        "do not show the scheme. We never collect or infer the other conditions."],
+    },
+    "PAHAL_DBTL": {
+        "version": "1",
+        "name": "PAHAL: LPG subsidy paid into the consumer's bank account",
+        "purpose": PURPOSE_GOV_PROTECT,
+        "output": "QUESTION",
+        "applies_to": "LPG consumers who joined PAHAL (DBTL)",
+        "trigger_facts": ["a run of LPG subsidy credits that stops"],
+        "required_facts": ["whether refills were booked since (customer or oil company record)",
+                           "which bank account the subsidy is paid into (oil company record)"],
+        "params": {"min_credits_seen": 3, "stopped_after_days_min": 60, "stopped_after_gap_multiple": 2},
+        "citation": ("PIB, launch of PAHAL (DBTL), 1 Jan 2015: consumers buy cylinders at market price and "
+                     "'subsidy will be transferred into their bank account'; joining is by giving the Aadhaar "
+                     "number to the distributor and the bank, or bank details / the 17-digit LPG ID."),
+        "source": "https://www.pib.gov.in/newsite/printrelease.aspx?relid=114245",
+        "last_verified": "2026-09-27",
+        "uncertainty": ["Subsidy per cylinder changes over time and can be zero; a stop in credits has "
+                        "innocent explanations (no refills, no subsidy due)."],
+    },
+    "APB_MAPPER": {
+        "version": "1",
+        "name": "Aadhaar Payment Bridge: which account government transfers go to",
+        "purpose": PURPOSE_GOV_PROTECT,
+        "output": "CONTEXT",
+        "applies_to": "government transfers routed by Aadhaar number (APBS)",
+        "trigger_facts": ["APBS credits in a connected account"],
+        "required_facts": [],
+        "params": {"routes_to": "the bank where the Aadhaar number was given last"},
+        "citation": ("Aadhaar Payment Bridge FAQ (UCO Bank, a participating bank): 'The customer Aadhaar "
+                     "number will get mapped in NPCI mapper to the bank in which he/she has given the "
+                     "Aadhaar number at the last.'"),
+        "source": "https://www.uco.bank.in/documents/d/guest/faq-apb",
+        "last_verified": "2026-09-27",
+        "uncertainty": ["A bank's FAQ, not an NPCI circular; NPCI's own FAQ page was not reachable."],
+    },
+}
+
+# Purposes as data: what each one lets us use, and what it never uses. The app shows
+# these words; the evaluator refuses to run a rule whose purpose is not switched on.
+PURPOSES = {
+    PURPOSE_AA_PROTECT: {
+        "label": "Watch our bank accounts for things that need attention",
+        "granted_through": "Account Aggregator consent (purpose code 102)",
+        "uses": ["transactions from the accounts you connect"],
+        "never_uses": ["balances as evidence", "PAN", "date of birth", "address"],
+        "withdraw": "revoke the consent in your AA app, or 'Stop & forget' here",
+    },
+    PURPOSE_GOV_PROTECT: {
+        "label": "Check government protections for our household",
+        "granted_through": "a separate switch in this app (not part of the AA consent)",
+        "uses": ["scheme debits and subsidy credits we already found in your connected accounts",
+                 "an age band you tell us (never a date of birth)",
+                 "whether someone pays income tax (asked only if a scheme needs it)",
+                 "whether someone is already covered through another account"],
+        "never_uses": ["date of birth", "caste", "religion", "disability", "health", "gender",
+                       "education", "location", "your income as a figure"],
+        "withdraw": "turn the switch off: the answers it used are forgotten",
+    },
+    PURPOSE_DPI_LPG: {
+        "label": "Check our LPG record with the oil company (through Perfios Hub)",
+        "granted_through": "a separate, per-lookup consent with your own 17-digit LPG ID",
+        "uses": ["your LPG ID, sent once to the oil company's record through Perfios Hub"],
+        "never_uses": ["the name, address, phone, email or Aadhaar digits the record returns - we drop them"],
+        "withdraw": "turn it off: the record and the ID are forgotten",
+    },
+}
+
+
+def _book(rule_id: str) -> dict:
+    return RULES.get(rule_id) or STATE_RULES[rule_id]
+
+
+def rule(rule_id: str) -> dict:
+    """Look a rule up in either book."""
+    return _book(rule_id)
+
+
 def rule_ref(rule_id: str) -> str:
     """The exact string an R evidence item must carry, e.g. 'LIC_GRACE@1'."""
-    return f"{rule_id}@{RULES[rule_id]['version']}"
+    return f"{rule_id}@{_book(rule_id)['version']}"
 
 
 def known_rule_refs() -> set:
-    return {rule_ref(r) for r in RULES}
+    return {rule_ref(r) for r in list(RULES) + list(STATE_RULES)}

@@ -16,6 +16,18 @@ so an invalid card cannot exist anywhere in the system:
      U items it is conditional on.
   8. No sensitive identifiers (PAN, mobile, DOB, email, address) anywhere.
 
+Gate 4 + 5 additions (nothing above is relaxed):
+  9.  O may also point at an external RECORD (a DPI source such as the oil
+      company's LPG record via Perfios Hub) instead of transactions. The record
+      reference says its source, its id and its MODE: live or simulated. A card
+      that rests on a simulated record must say so in its provenance.
+  10. A U item may be ANSWERED by the customer (resolved_by "fact:<id>"). It is
+      still U - the customer's knowledge, not our observation - so it can never
+      be part of the claim and no inference may rest on it. It only gates rules.
+  11. A DOOR must carry the unknowable "already covered through another
+      account": what we do not see in the connected accounts is never
+      treated as "not enrolled".
+
 The evaluator builds Cards; language.py turns them into words.
 """
 from __future__ import annotations
@@ -26,6 +38,7 @@ from typing import Optional
 from .rules import known_rule_refs, RULEBOOK_VERSION
 
 CLASSES = ("O", "R", "I", "U")
+RECORD_MODES = ("live", "simulated")
 CARD_TYPES = ("CLOCK", "DOOR", "SUPPRESSION", "QUESTION")
 FORBIDDEN_KEYS = {"pan", "dob", "date_of_birth", "email", "address", "mobile", "aadhaar", "nominee"}
 PAN_RX = re.compile(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b")
@@ -45,7 +58,11 @@ class Evidence:
     txn_ids: tuple = ()             # O: the transactions observed
     rule: str = ""                  # R: "RULE_ID@version"
     based_on: tuple = ()            # I: evidence ids this inference rests on
-    resolved_by: str = ""           # U: id of the question that resolves it
+    resolved_by: str = ""           # U: id of the question that resolves it, or "fact:<id>" once answered
+
+    @property
+    def answered(self) -> bool:
+        return self.cls == "U" and self.resolved_by.startswith("fact:")
 
 
 @dataclass(frozen=True)
@@ -130,17 +147,24 @@ def validate(c: Card) -> None:
         fail("duplicate evidence ids")
     by_id = {e.id: e for e in c.evidence}
     u_ids = {e.id for e in c.evidence if e.cls == "U"}
+    open_u = {e.id for e in c.evidence if e.cls == "U" and not e.answered}
     rules_known = known_rule_refs()
+    simulated = False
 
     for e in c.evidence:
         if e.cls not in CLASSES:
             fail(f"{e.id}: evidence class {e.cls!r} is not O/R/I/U")
         if e.cls == "O":
             absence = e.data.get("absence")
-            if not e.txn_ids and not absence:
-                fail(f"{e.id}: observed evidence must cite transaction ids or an absence window")
+            record = e.data.get("record")
+            if not e.txn_ids and not absence and not record:
+                fail(f"{e.id}: observed evidence must cite transaction ids, an absence window or a source record")
             if absence and not (absence["from"] <= absence["to"] <= absence["account_data_until"]):
                 fail(f"{e.id}: absence claimed outside the account's data window")
+            if record:
+                if record.get("mode") not in RECORD_MODES or not record.get("source") or not record.get("record_id"):
+                    fail(f"{e.id}: a source record must name its source, id and mode (live/simulated)")
+                simulated = simulated or record["mode"] == "simulated"
         if e.cls == "R" and e.rule not in rules_known:
             fail(f"{e.id}: rule {e.rule!r} is not in rulebook {RULEBOOK_VERSION}")
         if e.cls == "I":
@@ -152,7 +176,10 @@ def validate(c: Card) -> None:
                 if b in u_ids:
                     fail(f"{e.id}: an inference may not rest on an unknowable ({b})")
         if e.cls == "U":
-            if not c.question or e.resolved_by != c.question.id or e.id not in c.question.resolves:
+            if e.answered:
+                if "answered" not in e.data or not e.data.get("stated_on"):
+                    fail(f"{e.id}: an answered unknowable must carry the answer and when it was given")
+            elif not c.question or e.resolved_by != c.question.id or e.id not in c.question.resolves:
                 fail(f"{e.id}: an unknowable must be resolved by this card's question")
 
     if c.type != "QUESTION" and not c.claim:
@@ -165,8 +192,8 @@ def validate(c: Card) -> None:
 
     if c.question:
         for r in c.question.resolves:
-            if r not in u_ids:
-                fail(f"question resolves {r!r}, which is not an unknowable on this card")
+            if r not in open_u:
+                fail(f"question resolves {r!r}, which is not an open unknowable on this card")
         if not c.question.options:
             fail("a question needs answer options")
 
@@ -179,6 +206,11 @@ def validate(c: Card) -> None:
         for u in c.deadline.conditional_on:
             if u not in u_ids:
                 fail(f"deadline conditional_on {u!r} is not an unknowable on this card")
+
+    if c.type == "DOOR" and not any(e.cls == "U" and e.code == "COVERED_ELSEWHERE" for e in c.evidence):
+        fail("a door must carry 'already covered through another account' as an unknowable")
+    if simulated and c.provenance.get("simulated") is not True:
+        fail("this card rests on a simulated record, so its provenance must say simulated")
 
     for k in ("corpus_sha256", "rulebook_version", "engine", "as_of"):
         if not c.provenance.get(k):
