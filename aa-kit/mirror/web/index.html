@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mirror-token" content="__MIRROR_TOKEN__">
+<meta name="color-scheme" content="light">
+<title>Mirror</title>
+<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#scroller">Skip to Mirror</a>
+<div class="stage">
+  <main class="device" id="device" aria-label="Mirror">
+    <div class="progress" id="progress" aria-hidden="true"></div>
+    <header class="topbar" id="topbar"></header>
+    <div class="scroller" id="scroller" tabindex="0" aria-label="Current view">
+      <div class="view" id="view">
+        <div class="skeleton">
+          <div class="sk sk-title"></div><div class="sk sk-chips"></div>
+          <div class="sk sk-card"></div><div class="sk sk-line"></div><div class="sk sk-line short"></div>
+        </div>
+      </div>
+    </div>
+    <button class="fab" id="fab" type="button" hidden></button>
+    <nav class="tabbar" id="tabbar" aria-label="Views"></nav>
+    <div class="sheet-layer" id="sheet" hidden></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </main>
+  <aside class="rail rail-left" id="rail-left" aria-label="Replay controls for the demo operator"></aside>
+  <aside class="rail rail-right" id="rail-right" aria-label="How to read Mirror"></aside>
+</div>
+</body>
+</html>
