@@ -1,29 +1,54 @@
-export interface MirrorAppContract {
+export type JsonObject = Record<string, unknown>;
+
+export interface MirrorAppContract extends JsonObject {
   contract: "mirror.app/1.0";
-  generated: { as_of: string; data_mode: string; [key: string]: unknown };
-  now: { cards: readonly unknown[]; [key: string]: unknown };
-  ahead: Readonly<Record<string, unknown>>;
-  our_household: Readonly<Record<string, unknown>>;
-  what_we_know: Readonly<Record<string, unknown>>;
+  generated: JsonObject & { as_of: string; data_mode: string };
+  now: JsonObject & { cards: JsonObject[]; since_last_time: JsonObject; resolved: JsonObject[] };
+  ahead: JsonObject;
+  our_household: JsonObject;
+  what_we_know: JsonObject;
 }
 
-/** UI operations expected from a future customer API; no matching backend routes exist yet. */
-export interface MirrorContractSource {
-  getContract(signal?: AbortSignal): Promise<MirrorAppContract>;
-  submitAnswer(input: { cardId: string; optionId: string }): Promise<void>;
-  correctFact(input: { factId: string; value: string }): Promise<void>;
-  setPurpose(input: { purposeId: string; enabled: boolean }): Promise<void>;
-  forgetSession(): Promise<void>;
+export interface LocalSession {
+  mode: "local-demo";
+  authenticated: false;
+  data_source: string;
+  aa_connected: false;
+  consent_status: "not_started";
 }
 
-/** Explicitly unavailable until an approved customer-facing API is implemented. */
-export class DisabledLiveContractSource implements MirrorContractSource {
-  private unavailable(): never {
-    throw new Error("Live Mirror data is unavailable: the backend has no customer contract API yet.");
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/_mirror_backend/api/customer/${path}`, {
+    ...init,
+    headers: { Accept: "application/json", ...(init?.body ? { "Content-Type": "application/json" } : {}), ...init?.headers },
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = typeof payload === "object" && payload !== null && "error" in payload
+      ? String(payload.error)
+      : `The local service returned ${response.status}.`;
+    throw new Error(message);
   }
-  async getContract(): Promise<MirrorAppContract> { return this.unavailable(); }
-  async submitAnswer(): Promise<void> { return this.unavailable(); }
-  async correctFact(): Promise<void> { return this.unavailable(); }
-  async setPurpose(): Promise<void> { return this.unavailable(); }
-  async forgetSession(): Promise<void> { return this.unavailable(); }
+  return payload as T;
 }
+
+export const mirrorApi = {
+  getSession(signal?: AbortSignal) {
+    return requestJson<LocalSession>("session", { signal });
+  },
+  getContract(signal?: AbortSignal) {
+    return requestJson<MirrorAppContract>("contract", { signal });
+  },
+  submitAnswer(input: { cardId: string; optionId: string }) {
+    return requestJson<MirrorAppContract>("answers", { method: "POST", body: JSON.stringify(input) });
+  },
+  correctFact(input: { factId: string; value: string }) {
+    return requestJson<MirrorAppContract>("facts/correct", { method: "POST", body: JSON.stringify(input) });
+  },
+  setPurpose(input: { purposeId: string; enabled: boolean }) {
+    return requestJson<MirrorAppContract>("purpose", { method: "POST", body: JSON.stringify(input) });
+  },
+  forgetSession() {
+    return requestJson<{ forgotten: boolean; state_removed: boolean; message: string }>("forget", { method: "POST" });
+  },
+};

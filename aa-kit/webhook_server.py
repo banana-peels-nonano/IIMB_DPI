@@ -9,10 +9,12 @@ import json, os, time, hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from flask import Flask, request, jsonify
+from customer_api import bp as customer_api
 
 CAP = Path(__file__).parent / "captures"; CAP.mkdir(exist_ok=True)
 MODE = os.getenv("MODE", "dev")
 app = Flask(__name__)
+app.register_blueprint(customer_api)
 
 SENSITIVE = {"x-client-secret", "authorization", "cookie", "x-secure-cred", "x-api-key"}
 
