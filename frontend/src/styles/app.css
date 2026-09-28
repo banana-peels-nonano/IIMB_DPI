@@ -96,6 +96,10 @@
   padding: var(--ux4g-padding-s) var(--ux4g-padding-m);
 }
 
+.ux4g-btn-md {
+  min-height: 44px;
+}
+
 .page-stack {
   display: grid;
 }
@@ -167,12 +171,23 @@
 .purpose-row {
   justify-content: space-between;
   min-height: 44px;
+  flex-wrap: nowrap;
 }
 
-.purpose-row input {
-  accent-color: var(--ux4g-text-brand-primary-default);
-  height: 24px;
-  width: 24px;
+.purpose-switch-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.purpose-switch-status {
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
+/* UX4G v2.1 defaults the off track to neutral-subtle, a documented <3:1 boundary failure.
+   Keep its documented Switch geometry and add a theme-aware neutral-strong edge. */
+.purpose-switch-track {
+  border: var(--ux4g-border-width-sm) solid var(--ux4g-border-color-neutral-strong);
 }
 
 .site-footer {
@@ -189,6 +204,12 @@
   padding-bottom: env(safe-area-inset-bottom);
   position: fixed;
   z-index: 10;
+}
+
+.ux4g-navbar.ux4g-navbar-mobile.mobile-navigation {
+  /* UX4G reserves this modifier for a static dropdown menu (position:static!important);
+     this application uses it as the persistent four-section mobile navigation instead. */
+  position: fixed !important;
 }
 
 .household-grid {

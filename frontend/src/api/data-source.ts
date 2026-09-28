@@ -27,6 +27,3 @@ export class DisabledLiveContractSource implements MirrorContractSource {
   async setPurpose(): Promise<void> { return this.unavailable(); }
   async forgetSession(): Promise<void> { return this.unavailable(); }
 }
-
-/** Local fixture is the only enabled journey source in this phase. */
-export const activeContractSource: "sample" = "sample";
